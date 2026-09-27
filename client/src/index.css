@@ -1,0 +1,293 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Design tokens.
+
+   Brand palette:
+     #853953  deep berry    — primary brand, buttons, active states
+     #612D53  muted purple  — secondary accent, hover states
+     #2C2C2C  dark charcoal — page background, cards, sidebar
+     #F3F4F4  off-white     — primary text, contrast elements
+
+   The berry/plum scales below carry those four values at their anchor steps
+   (#853953 at berry-600, #612D53 at plum-600) and ramp to lighter tints for
+   text and icons. That matters for contrast: on the #2C2C2C background the
+   brand colors themselves only reach 1.8:1 and 1.3:1, which fails WCAG AA for
+   text and even the 3:1 minimum for borders. So berry-300/400 (4.8:1 and up)
+   are what text and icons use, while berry-600/plum-600 are reserved for
+   filled surfaces, hover fills and decorative glows. Off-white on berry-600
+   measures 7.0:1, which is why buttons pair the two.
+--------------------------------------------------------------------------- */
+@theme {
+  /* Surfaces — charcoal family, each step slightly lifted for depth. */
+  --color-surface-0: #2c2c2c;
+  --color-surface-1: #333333;
+  --color-surface-2: #3a3a3a;
+  --color-surface-3: #434343;
+
+  /* Borders keep a faint plum cast so panels read warm against the charcoal. */
+  --color-line: #45363c;
+  --color-muted: #a8a3a6;
+  --color-ink: #f3f4f4;
+
+  /* Brand. accent-soft is the focus ring, so it must stay light enough to be
+     visible against charcoal (4.8:1). */
+  --color-accent: #853953;
+  --color-accent-soft: #d07e9f;
+  --color-accent-deep: #612d53;
+
+  /* Deep berry ramp — brand anchor at 600. */
+  --color-berry-50: #fbf1f5;
+  --color-berry-100: #f4d9e4;
+  --color-berry-200: #ebbccf;
+  --color-berry-300: #e0a2ba;
+  --color-berry-400: #d07e9f;
+  --color-berry-500: #a94e72;
+  --color-berry-600: #853953;
+  --color-berry-700: #612d53;
+  --color-berry-800: #4a213e;
+  --color-berry-900: #33162b;
+
+  /* Muted purple ramp — secondary anchor at 600. */
+  --color-plum-50: #f6f1f6;
+  --color-plum-100: #e9dee9;
+  --color-plum-200: #d6c0d6;
+  --color-plum-300: #be9cbe;
+  --color-plum-400: #a279a4;
+  --color-plum-500: #7e5079;
+  --color-plum-600: #612d53;
+  --color-plum-700: #4a213f;
+  --color-plum-800: #34172c;
+  --color-plum-900: #210e1c;
+
+  /* Status colours are functional, not brand: they keep a fixed meaning
+     (good / warning / bad) across every chart, badge and bar, so they are
+     deliberately left out of the berry rebrand. */
+  --color-score-high: #22c55e;
+  --color-score-mid: #f59e0b;
+  --color-score-low: #ef4444;
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(900px 500px at 12% -8%, rgb(133 57 83 / 0.28), transparent 60%),
+      radial-gradient(760px 460px at 92% 4%, rgb(97 45 83 / 0.24), transparent 62%),
+      var(--color-surface-0);
+    background-attachment: fixed;
+    color: var(--color-ink);
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100dvh;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  /* A single visible focus treatment for every interactive element. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-soft);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+
+  ::selection {
+    background: rgb(133 57 83 / 0.45);
+  }
+
+  /* Scrollbars, so panels do not get a bright default bar. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line) transparent;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #5a4750; background-clip: content-box; }
+}
+
+/* ---------------------------------------------------------------------------
+   Components
+--------------------------------------------------------------------------- */
+@layer components {
+  .card {
+    background: linear-gradient(180deg, rgb(58 58 58 / 0.92), rgb(51 51 51 / 0.92));
+    border: 1px solid var(--color-line);
+    border-radius: 1rem;
+    backdrop-filter: blur(12px);
+  }
+
+  .card-hover {
+    transition: border-color 0.2s ease, transform 0.2s ease;
+  }
+  .card-hover:hover {
+    border-color: var(--color-accent-soft);
+    transform: translateY(-2px);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.625rem;
+    padding: 0.625rem 1.1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease,
+      transform 0.1s ease, border-color 0.15s ease;
+    white-space: nowrap;
+  }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .btn-primary {
+    background: linear-gradient(180deg, var(--color-accent), var(--color-accent-deep));
+    color: var(--color-ink);
+    box-shadow: 0 8px 22px -10px rgb(133 57 83 / 0.9);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, #943f5c, #6d3159);
+  }
+
+  .btn-ghost {
+    background: var(--color-surface-2);
+    border-color: var(--color-line);
+    color: var(--color-ink);
+  }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--color-accent-soft); }
+
+  .btn-danger {
+    background: rgb(239 68 68 / 0.12);
+    border-color: rgb(239 68 68 / 0.4);
+    color: #fca5a5;
+  }
+  .btn-danger:hover:not(:disabled) { background: rgb(239 68 68 / 0.2); }
+
+  .field {
+    width: 100%;
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-line);
+    border-radius: 0.625rem;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.9375rem;
+    color: var(--color-ink);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .field::placeholder { color: #7d787b; }
+  .field:focus {
+    outline: none;
+    border-color: var(--color-accent-soft);
+    box-shadow: 0 0 0 3px rgb(133 57 83 / 0.28);
+  }
+  .field:disabled { opacity: 0.6; cursor: not-allowed; }
+  .field-error { border-color: var(--color-score-low); }
+  .field-error:focus { box-shadow: 0 0 0 3px rgb(239 68 68 / 0.18); }
+
+  .label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-muted);
+    margin-bottom: 0.375rem;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.625rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--color-muted);
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .nav-link:hover { background: var(--color-surface-2); color: var(--color-ink); }
+  .nav-link-active {
+    background: rgb(133 57 83 / 0.24);
+    color: var(--color-berry-200);
+    box-shadow: inset 2px 0 0 var(--color-accent-soft);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Utilities & animation
+--------------------------------------------------------------------------- */
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(120deg, #ebbccf, #d07e9f 45%, #d6c0d6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fade-up 0.35s ease both; }
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow { animation: spin-slow 1.1s linear infinite; }
+
+/* Used by components/ui/Meteors.jsx. The head rotates to --meteor-angle (set
+   inline per meteor) and then slides backwards along that same axis, so the
+   direction of travel always matches the angle it is given. */
+@keyframes meteor {
+  0%   { opacity: 0; transform: rotate(var(--meteor-angle, 215deg)) translateX(0); }
+  20%  { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--meteor-angle, 215deg)) translateX(-500px); }
+}
+
+/* Respect the OS "reduce motion" setting. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
