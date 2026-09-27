@@ -1,0 +1,40 @@
+{
+  "name": "ai-cv-analyzer-server",
+  "version": "1.0.0",
+  "description": "REST API for the MERN AI CV Analyzer & Smart Job Matcher",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node scripts/seedJobs.js",
+    "verify": "node scripts/verifyEngine.js && node scripts/verifyExtraction.js && node scripts/verifyPdfPipeline.js && node scripts/verifyAiService.js"
+  },
+  "keywords": [
+    "mern",
+    "cv",
+    "ats",
+    "resume",
+    "job-matcher"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.20.0",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "express-validator": "^7.3.2",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mammoth": "^1.12.3",
+    "mongoose": "^9.10.2",
+    "morgan": "^1.12.1",
+    "multer": "^2.4.0",
+    "pdf-parse": "^1.1.1",
+    "tesseract.js": "^7.0.0"
+  }
+}

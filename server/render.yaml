@@ -1,0 +1,56 @@
+# Render blueprint: https://render.com/docs/blueprint-spec
+#
+# Deploys the API as a Node web service. The client is a static Vite build;
+# deploy it separately (Vercel/Netlify/Cloudflare Pages) and set the
+# CORS_ORIGINS / CLIENT_URL values below to match that URL.
+services:
+  - type: web
+    name: cv-analyzer-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    # Free instances spin down when idle and hold no persistent disk, so
+    # uploaded CVs are lost on restart. Switch to a paid instance (or an
+    # external object store) for a durable deployment.
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: AI_PROVIDER
+        value: local
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: XAI_API_KEY
+        sync: false
+      - key: XAI_MODEL
+        value: grok-2-latest
+      # The client is served from a different origin, so the session cookie
+      # must be SameSite=None + Secure. Plain http://localhost is exempt
+      # because browsers treat localhost as a secure context.
+      - key: CLIENT_URL
+        sync: false
+      - key: ADDITIONAL_ORIGINS
+        sync: false
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: MAX_UPLOAD_MB
+        value: "5"
+      - key: PUBLIC_UPLOADS
+        value: "false"
