@@ -4,7 +4,6 @@ import {
   LayoutDashboard, Upload, BarChart3, Briefcase, LogOut, Menu, X,
 } from 'lucide-react';
 import { useAuth } from '../context/authContext';
-import VideoText from './ui/VideoText';
 
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -41,14 +40,11 @@ export default function Layout() {
         }`}
       >
         <div className="flex h-16 items-center gap-2.5 border-b border-[--color-line] px-5">
-          {/* Video-text wordmark. The box is sized to the row and the font size
-              is tuned so "CVision AI" fits it — the mask clips overflow rather
-              than scaling it down. */}
-          <div className="h-8 w-[10.5rem] shrink-0">
-            <VideoText src="/brand-ocean.webm" fontSize={32} preload="metadata">
-              CVision AI
-            </VideoText>
-          </div>
+          {/* Wordmark. The falling-streak effect lives in the landing hero —
+              there is no room for it in a 4rem-tall sidebar row. */}
+          <span className="text-[1.0625rem] font-semibold tracking-tight text-gradient">
+            CVision AI
+          </span>
           <button
             type="button"
             onClick={() => setMobileOpen(false)}

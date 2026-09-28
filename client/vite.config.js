@@ -7,14 +7,30 @@ export default defineConfig(({ mode }) => {
   // rather than hardcoding a host.
   const env = loadEnv(mode, process.cwd(), '');
 
+  /**
+   * Origin the dev proxy forwards to. It must be a bare origin: the proxy is
+   * mounted on '/api' and '/uploads' and appends the rest of the path, so a
+   * target like 'http://localhost:5000/api' would forward '/api/api/auth/login'
+   * and 404. Strip the suffix defensively so a value copied from the README
+   * still works, and allow a separate host via VITE_DEV_PROXY_TARGET.
+   */
+  const proxyTarget = (env.VITE_DEV_PROXY_TARGET || env.VITE_API_URL || 'http://localhost:5000')
+    .replace(/\/+$/, '')
+    .replace(/\/api$/, '');
+
   return {
     plugins: [react(), tailwindcss()],
     server: {
       port: 5173,
+      // Without this Vite silently moves to 5174 if 5173 is taken, which takes
+      // the app out of the server's CLIENT_URL/CORS allow-list.
+      strictPort: true,
       proxy: {
         // Lets /api and /uploads work in dev without CORS or cookies issues.
-        '/api': { target: env.VITE_API_URL || 'http://localhost:5000', changeOrigin: true },
-        '/uploads': { target: env.VITE_API_URL || 'http://localhost:5000', changeOrigin: true },
+        // With no reachable backend these answer 502, which is what surfaces
+        // in the console when the server has not been started.
+        '/api': { target: proxyTarget, changeOrigin: true },
+        '/uploads': { target: proxyTarget, changeOrigin: true },
       },
     },
     build: {

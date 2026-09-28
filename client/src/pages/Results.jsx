@@ -5,7 +5,7 @@ import {
   Zap, BookOpen, FolderGit2, Award, Languages, Mail, Phone, MapPin,
   Link2, FileText, Trash2, Download, TrendingUp, Clock, Briefcase,
 } from 'lucide-react';
-import API from '../api/axios';
+import API, { API_HOST } from '../api/axios';
 import Card, { CardHeader, EmptyState } from '../components/ui/Card';
 import Alert from '../components/ui/Alert';
 import Badge, { LevelBadge, DemandBadge } from '../components/ui/Badge';
@@ -21,8 +21,9 @@ const BREAKDOWN_LABELS = {
   keywords: { label: 'Target keywords', hint: 'Coverage of the keywords recruiters filter on' },
 };
 
-const downloadUrl = (fileUrl) =>
-  `${import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, '') : ''}${fileUrl || ''}`;
+// Uploaded files are served from "/uploads" on the API host, not from "/api",
+// so this deliberately uses the bare origin (API_HOST) and not baseURL.
+const downloadUrl = (fileUrl) => `${API_HOST}${fileUrl || ''}`;
 
 export default function Results() {
   const location = useLocation();

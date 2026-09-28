@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState } from 'react';
 
 /**
  * Meteors — decorative streaks of light falling across the nearest positioned
@@ -11,9 +11,11 @@ import { useMemo } from 'react';
  *  - Plain JSX. Upstream is TypeScript and merges classes with `cn` from
  *    `@/lib/utils`; this project is JSX-only with no `@/` alias, so the few
  *    class strings are written out directly, as in `Text3DFlip`.
- *  - Positions and timings are computed in a single useMemo rather than
- *    useState + useEffect, so there is no empty first paint. There is no SSR
- *    in this app, so the values never need to be stable across renders.
+ *  - Positions and timings are drawn once, in a useState initialiser, so they
+ *    survive re-renders. Recomputing them per render would reshuffle every
+ *    streak and restart its animation each time the parent re-rendered. The
+ *    timing props are therefore read on mount only, which is all the landing
+ *    hero needs — it passes a constant `number`.
  *  - The `angle` prop actually works here. Upstream rotates each head by
  *    `angle` but hardcodes `215deg` inside the `@keyframes meteor` transform
  *    and again on the trail, so passing anything but 215 produces a trail that
@@ -32,14 +34,12 @@ export default function Meteors({
   angle = 215,
   className = '',
 }) {
-  const meteors = useMemo(
-    () =>
-      Array.from({ length: number }, () => ({
-        left: Math.random() * 100,
-        duration: minDuration + Math.random() * (maxDuration - minDuration),
-        delay: minDelay + Math.random() * (maxDelay - minDelay),
-      })),
-    [number, minDelay, maxDelay, minDuration, maxDuration]
+  const [meteors] = useState(() =>
+    Array.from({ length: number }, () => ({
+      left: Math.random() * 100,
+      duration: minDuration + Math.random() * (maxDuration - minDuration),
+      delay: minDelay + Math.random() * (maxDelay - minDelay),
+    }))
   );
 
   return (
