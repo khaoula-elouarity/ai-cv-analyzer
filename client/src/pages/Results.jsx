@@ -13,12 +13,15 @@ import ScoreCircle from '../components/ui/ScoreCircle';
 import ScoreBar from '../components/ui/ScoreBar';
 import { FullPageSpinner } from '../components/ui/Spinner';
 
+// Hints are written generically on purpose: the analysed field is not known
+// until the analysis loads, so software vocabulary ("technologies") would be
+// wrong for every non-tech candidate.
 const BREAKDOWN_LABELS = {
-  skills: { label: 'Skills breadth', hint: 'How many recognised, in-demand technologies you evidence' },
-  experience: { label: 'Experience', hint: 'Depth of roles, projects and years of work' },
-  education: { label: 'Education & credentials', hint: 'Degrees, certifications and formal training' },
-  formatting: { label: 'Impact & structure', hint: 'Quantified results, action verbs, and a clear summary' },
-  keywords: { label: 'Target keywords', hint: 'Coverage of the keywords recruiters filter on' },
+  skills: { label: 'Skills & competencies', hint: 'Breadth of the skills, qualifications and expertise your field screens for' },
+  experience: { label: 'Experience', hint: 'Depth, relevance and seniority progression of your roles' },
+  education: { label: 'Education & credentials', hint: 'Degrees, registrations, certifications and formal training' },
+  formatting: { label: 'Impact & structure', hint: 'Measured results, action verbs, and a clear summary' },
+  keywords: { label: 'Target keywords', hint: 'Coverage of the keywords recruiters in your field filter on' },
 };
 
 // Uploaded files are served from "/uploads" on the API host, not from "/api",
@@ -181,6 +184,38 @@ export default function Results() {
         </div>
       </Card>
 
+      {/* ---------- Detected field ---------- */}
+      {analysis.fieldLabel && (
+        <Card className="p-6">
+          <CardHeader
+            icon={Briefcase}
+            title="Profession detected"
+            subtitle={
+              analysis.fieldConfidence > 0
+                ? `Based on your job titles, qualifications and terminology · ${analysis.fieldConfidence}% confidence`
+                : 'Based on your job titles, qualifications and terminology'
+            }
+          />
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center rounded-full bg-[--color-primary-soft] px-3.5 py-1.5 text-sm font-semibold text-[--color-primary]">
+              {analysis.fieldLabel}
+            </span>
+            {analysis.fieldEvidence?.length > 0 && (
+              <span className="text-xs text-[--color-muted]">
+                Evidence: {analysis.fieldEvidence.slice(0, 4).join(' · ')}
+              </span>
+            )}
+          </div>
+          <p className="mt-4 text-sm text-[--color-muted]">
+            This analysis is scored and advised against {analysis.fieldLabel} standards
+            {analysis.field !== 'software' && analysis.field !== 'general'
+              ? ' — not software industry conventions'
+              : ''}
+            .
+          </p>
+        </Card>
+      )}
+
       {/* ---------- Profile ---------- */}
       {(profile?.fullName || profile?.email || profile?.summary) && (
         <Card className="p-6">
@@ -321,7 +356,7 @@ export default function Results() {
           <CardHeader
             icon={Target}
             title="Roles you are best suited to"
-            subtitle="Ranked by how much of each role's stack your CV already proves"
+            subtitle="Roles in your field, ranked by how much of each role your CV already evidences"
             action={
               <Link to="/jobs" className="btn btn-ghost">
                 Match a specific job
@@ -414,7 +449,11 @@ export default function Results() {
 
           {analysis.projects?.length > 0 && (
             <Card className="p-6">
-              <CardHeader icon={FolderGit2} title="Projects" />
+              <CardHeader
+                icon={FolderGit2}
+                title="Projects & key work"
+                subtitle="Tools, systems or methods used"
+              />
               <ul className="mt-4 space-y-3">
                 {analysis.projects.map((proj, i) => (
                   <li key={i}>
@@ -446,6 +485,47 @@ export default function Results() {
                     <li key={c} className="flex items-start gap-2 text-sm">
                       <Award className="mt-0.5 size-3.5 shrink-0 text-amber-400" aria-hidden="true" />
                       <span className="text-[--color-muted]">{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+
+            {/* Registrations are gating requirements in regulated fields, so
+                they are surfaced separately from optional certifications. */}
+            {analysis.registrations?.length > 0 && (
+              <Card className="p-5">
+                <CardHeader
+                  icon={CheckCircle2}
+                  title="Registrations & licences"
+                  subtitle="Professional registrations employers in regulated fields require"
+                />
+                <ul className="mt-4 space-y-2">
+                  {analysis.registrations.map((r) => (
+                    <li key={r} className="flex items-start gap-2 text-sm">
+                      <CheckCircle2
+                        className="mt-0.5 size-3.5 shrink-0 text-emerald-400"
+                        aria-hidden="true"
+                      />
+                      <span className="text-[--color-muted]">{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+
+            {analysis.affiliations?.length > 0 && (
+              <Card className="p-5">
+                <CardHeader
+                  icon={Link2}
+                  title="Professional memberships"
+                  subtitle="Bodies, networks and industry affiliations"
+                />
+                <ul className="mt-4 space-y-2">
+                  {analysis.affiliations.map((a) => (
+                    <li key={a} className="flex items-start gap-2 text-sm">
+                      <Link2 className="mt-0.5 size-3.5 shrink-0 text-sky-400" aria-hidden="true" />
+                      <span className="text-[--color-muted]">{a}</span>
                     </li>
                   ))}
                 </ul>
@@ -553,7 +633,7 @@ function SkillsCard({ skills }) {
       <CardHeader
         icon={Sparkles}
         title="Skills detected"
-        subtitle={`${skills.length} technologies recognised in your CV`}
+        subtitle={`${skills.length} skills, qualifications or competencies recognised in your CV`}
       />
       <div className="mt-5 space-y-5">
         {grouped.map(([category, list]) => (

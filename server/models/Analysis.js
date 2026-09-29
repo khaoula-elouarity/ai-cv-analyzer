@@ -60,8 +60,26 @@ const analysisSchema = new mongoose.Schema(
     experience: { type: [mongoose.Schema.Types.Mixed], default: [] },
     education: { type: [mongoose.Schema.Types.Mixed], default: [] },
     certifications: { type: [String], default: [] },
+    /**
+     * Professional registrations and licences. In regulated fields (medicine,
+     * law, teaching, accountancy, finance) the absence of these is a genuine
+     * blocker, so they are first-class data rather than folded into
+     * certifications.
+     */
+    registrations: { type: [String], default: [] },
+    /** Professional bodies, networks, committees, industry memberships. */
+    affiliations: { type: [String], default: [] },
     languages: { type: [String], default: [] },
     projects: { type: [mongoose.Schema.Types.Mixed], default: [] },
+
+    /**
+     * Detected profession, e.g. 'healthcare', 'accounting', 'software'.
+     * Drives field-specific scoring, role suggestions and AI prompting.
+     */
+    field: { type: String, default: 'general' },
+    fieldLabel: { type: String, default: '' },
+    fieldConfidence: { type: Number, default: 0 },
+    fieldEvidence: { type: [String], default: [] },
 
     strengths: { type: [String], default: [] },
     weaknesses: { type: [String], default: [] },

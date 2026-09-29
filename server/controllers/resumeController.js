@@ -1,5 +1,6 @@
 const fs = require('fs/promises');
 const path = require('path');
+const mongoose = require('mongoose');
 const Resume = require('../models/Resume');
 const Analysis = require('../models/Analysis');
 const Job = require('../models/Job');
@@ -42,6 +43,18 @@ const uploadAndAnalyze = asyncHandler(async (req, res) => {
   try {
     if (!req.file) {
       throw ApiError.badRequest('Please attach a CV file in the "resume" field');
+    }
+
+    // Validate the optional target job *before* any work is done. `jobId` is
+    // optional, but a malformed one used to reach `Job.findOne({ _id })`, where
+    // Mongoose throws a CastError that errorMiddleware reports as a bare
+    // "Invalid _id" (400) — after the file had been written, a Resume row
+    // created and the whole upload thrown away. The sibling
+    // POST /api/analysis/:resumeId route already guards this with isMongoId().
+    if (req.body?.jobId && !mongoose.isValidObjectId(req.body.jobId)) {
+      throw ApiError.badRequest(
+        'The selected target job is no longer valid. Refresh the page and pick it again, or upload without a target job.'
+      );
     }
 
     // Multer has already written the file with a random, traversal-safe name.

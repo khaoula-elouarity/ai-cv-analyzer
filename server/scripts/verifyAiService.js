@@ -38,6 +38,46 @@ const {
   sanitiseMatch,
 } = require('../services/aiService');
 const { analyzeLocally, SCORE_WEIGHTS } = require('../services/localAnalyzer');
+const { detectField } = require('../services/fieldDetection');
+
+/**
+ * A clinical CV. Used to prove the analyser is not software-biased: it must
+ * detect the field, use clinical vocabulary, and never suggest a GitHub link
+ * or a tech-stack project to a nurse.
+ */
+const NURSE_RESUME = `Priya Raman
+Senior Registered Nurse
+priya.raman@example.com | Manchester, UK
+
+PROFESSIONAL SUMMARY
+Senior band 6 nurse with 9 years in acute medical wards, with a specialism in emergency and critical care.
+
+SKILLS
+Patient Care, Clinical Assessment, Care Planning, Triage, Patient Safety, Infection Control, Medication Administration, Clinical Documentation, Safeguarding, First Aid, Interprofessional Collaboration, Evidence-Based Practice.
+
+EXPERIENCE
+Senior Registered Nurse, Royal Infirmary (2021 - present)
+- Managed a 14-bed acute medical ward with 100% medication administration accuracy.
+- Reduced ward handover incidents 30% by introducing a structured safety checklist.
+- Triage lead for the emergency department, seeing 40 patients per shift.
+
+Registered Nurse, City General Hospital (2016 - 2021)
+- Delivered care for a caseload of 28 complex patients across three wards.
+- Mentored 6 newly qualified nurses through their first year.
+
+EDUCATION
+BSc (Hons) Adult Nursing, University of Manchester, 2016
+
+REGISTRATIONS
+NMC Registration: 76A1234X
+
+CERTIFICATIONS
+IV Cannulation and IV Therapy (City & Guilds)
+Advanced Life Support (Resuscitation Council UK)`;
+
+const NURSE_JOB = `We are recruiting a Senior Band 6 Registered Nurse for our acute medical unit.
+Requirements: NMC registration, patient assessment, care planning, triage, infection control, medication administration, evidence-based practice, and experience mentoring newly qualified staff.
+You will take an active role in clinical governance and audit.`;
 
 const RESUME = `Jane Doe
 Senior Backend Engineer
@@ -237,6 +277,162 @@ const check = (label, fn) => {
   failures += check('never hard-fails on a provider outage', () =>
     assert.ok(localOnly.score >= 0 && localOnly.score <= 100)
   );
+
+  // ------------------------------------------------- universal / no-tech-bias
+  console.log('\nField detection (non-software professions)');
+
+  const nurseField = detectField(NURSE_RESUME, { skills: analyzeLocally(NURSE_RESUME).skills });
+  failures += check('detects a clinical CV as healthcare, not software', () =>
+    assert.strictEqual(nurseField.field, 'healthcare')
+  );
+  failures += check('assigns the healthcare label', () =>
+    assert.match(nurseField.label, /Healthcare/i)
+  );
+  failures += check('reports evidence for the detection', () =>
+    assert.ok(nurseField.evidence.length > 0)
+  );
+
+  const nurseLocal = analyzeLocally(NURSE_RESUME);
+  failures += check('local engine labels the nurse CV with the healthcare field', () => {
+    assert.strictEqual(nurseLocal.field, 'healthcare');
+    assert.match(nurseLocal.fieldLabel, /Healthcare/i);
+  });
+  failures += check('an AI result still carries the field label, confidence and evidence', () => {
+    // The model payload above names no field, so the deterministic detection
+    // stands. The metadata must survive sanitisation or the frontend field
+    // card silently disappears on every AI-backed analysis.
+    assert.ok(result.field, 'field missing from the AI result');
+    assert.ok(result.fieldLabel, 'fieldLabel missing from the AI result');
+    assert.match(result.fieldLabel, /Software|Developer|Engineering/i);
+    assert.ok(result.fieldConfidence > 0, 'fieldConfidence missing from the AI result');
+    assert.ok(Array.isArray(result.fieldEvidence) && result.fieldEvidence.length);
+  });
+  failures += check('sanitise always re-labels, even when the model names no field', () => {
+    const out = sanitise({ skills: [{ name: 'Go' }] }, nurseLocal);
+    assert.strictEqual(out.field, 'healthcare');
+    assert.strictEqual(out.fieldLabel, nurseLocal.fieldLabel);
+    assert.ok(out.fieldEvidence.length);
+  });
+  failures += check('a model field override re-derives the confidence and evidence', () => {
+    // A healthcare label on a backend CV: the label must follow the model, but
+    // the confidence/evidence must be recomputed, not inherited from software.
+    nextResponse = reply(JSON.stringify({ ...modelAnalysis, field: 'healthcare' }));
+    return analyzeResume(RESUME).then((overridden) => {
+      assert.strictEqual(overridden.field, 'healthcare');
+      assert.match(overridden.fieldLabel, /Healthcare/i);
+      assert.ok(
+        overridden.fieldEvidence.join(' ') !== (result.fieldEvidence || []).join(' '),
+        'evidence still describes the original field'
+      );
+    });
+  });
+  failures += check('local engine only suggests clinical roles for a nurse', () => {
+    const titles = nurseLocal.suggestedRoles.map((r) => r.title);
+    assert.ok(titles.length, 'expected at least one role suggestion');
+    const banned = /engineer|developer|devops|designer/i;
+    assert.ok(
+      titles.every((t) => !banned.test(t)),
+      `non-clinical roles suggested to a nurse: ${titles.join(', ')}`
+    );
+  });
+  failures += check('missing keywords are clinical, not software', () => {
+    const all = [...nurseLocal.missingKeywords, ...nurseLocal.matchedKeywords].join(' | ');
+    assert.ok(!/kubernetes|terraform|react|node\.js|graphql/i.test(all), all);
+  });
+  failures += check('recommendations never tell a nurse to add a GitHub link', () => {
+    const copy = [
+      ...nurseLocal.recommendations,
+      ...nurseLocal.weaknesses,
+      ...nurseLocal.strengths,
+    ].join(' | ');
+    assert.ok(!/github|tech stack|repository|codebase|programming/i.test(copy), copy);
+  });
+  failures += check('recommendations reference clinical evidence, e.g. registration', () => {
+    const copy = nurseLocal.recommendations.join(' | ');
+    assert.ok(
+      /registration|licence|qualification|credential/i.test(copy),
+      `no clinical credential advice found in: ${copy}`
+    );
+  });
+  failures += check('a CV with no field signal falls back to general, not software', () => {
+    const generic = analyzeLocally('Somebody\nemail@example.com\n\nWORK EXPERIENCE\nCoordinator, Acme (2020 - 2024)\n- Delivered support to internal stakeholders.');
+    assert.ok(
+      ['general'].includes(generic.field),
+      `expected general, got ${generic.field}`
+    );
+  });
+  failures += check('the local engine surfaces the NMC registration number', () => {
+    assert.ok(
+      nurseLocal.registrations.some((r) => /76A1234X/.test(r)),
+      `registrations: ${JSON.stringify(nurseLocal.registrations)}`
+    );
+  });
+  failures += check('a memberships section is not read as certifications', () => {
+    const withBodies = analyzeLocally(
+      `${NURSE_RESUME}\n\nPROFESSIONAL MEMBERSHIPS\nRoyal College of Nursing\nNursing and Midwifery Council`
+    );
+    assert.ok(withBodies.affiliations.includes('Royal College of Nursing'), JSON.stringify(withBodies.affiliations));
+    assert.ok(
+      !withBodies.affiliations.includes('Advanced Life Support (Resuscitation Council UK)'),
+      'certifications leaked into affiliations'
+    );
+  });
+
+  // The prompt itself must carry the field brief and the no-GitHub instruction.
+  nextResponse = reply(JSON.stringify(modelAnalysis));
+  await analyzeResume(NURSE_RESUME, { title: 'Senior Band 6 Registered Nurse', description: NURSE_JOB });
+  const nursePrompt = calls.at(-1).body.messages[1].content;
+  failures += check('prompt names the target job title, not the object', () => {
+    assert.ok(
+      nursePrompt.includes('TARGET JOB TITLE: Senior Band 6 Registered Nurse'),
+      'target job title missing or stringified'
+    );
+    assert.ok(!/\[object Object\]/.test(nursePrompt), 'prompt contains [object Object]');
+  });
+  failures += check('prompt names the detected profession to the model', () =>
+    assert.match(nursePrompt, /CANDIDATE'S FIELD: Healthcare/)
+  );
+  failures += check('prompt tells the model to judge against that field only', () =>
+    assert.match(nursePrompt, /Judge every criterion below against Healthcare standards/)
+  );
+  failures += check('prompt forbids software advice for non-technical candidates', () =>
+    assert.match(nursePrompt, /do not recommend software-specific evidence/i)
+  );
+  failures += check('prompt asks for registrations in regulated fields', () =>
+    assert.match(nursePrompt, /"registrations"/)
+  );
+  failures += check('prompt flags regulated fields as gating', () =>
+    assert.match(nursePrompt, /REGULATED field/)
+  );
+  failures += check('system prompt names every profession class, not just software', () => {
+    const sys = calls.at(-1).body.messages[0].content;
+    for (const word of ['Marketing', 'accounting', 'medicine', 'teaching', 'law', 'sales', 'hospitality']) {
+      assert.ok(sys.includes(word), `system prompt never mentions ${word}`);
+    }
+    assert.match(sys, /NEVER suggest software-specific evidence/);
+  });
+
+  const nurseMatch = await matchResumeWithJob(
+    { ...nurseLocal, field: 'healthcare' },
+    NURSE_JOB,
+    { title: 'Senior Band 6 Registered Nurse' }
+  );
+  failures += check('match prompt is field-aware for a nursing role', () => {
+    const p = calls.at(-1).body.messages[1].content;
+    assert.match(p, /CANDIDATE'S FIELD: Healthcare/);
+    assert.ok(!/microservices/i.test(p));
+  });
+  failures += check('deterministic matcher scores a nurse against a nursing post', () => {
+    assert.ok(nurseMatch.score > 0, `expected a real score, got ${nurseMatch.score}`);
+    assert.ok(
+      nurseMatch.matchedKeywords.length,
+      'expected clinical skills to be matched'
+    );
+  });
+  failures += check('nurse match keywords are clinical, not software', () => {
+    const all = [...nurseMatch.matchedKeywords, ...nurseMatch.missingKeywords].join(' | ');
+    assert.ok(!/kubernetes|node\.js|docker|terraform/i.test(all), all);
+  });
 
   // ------------------------------------------------------------------ match
   console.log('\nmatchResumeWithJob');

@@ -2,11 +2,13 @@ const {
   SKILL_INDEX,
   ALIASES,
   ROLE_PROFILES,
-  ATS_KEYWORDS,
+  FIELD_ROLE_PROFILES,
+  atsKeywordsFor,
   SECTION_PATTERNS,
   STRONG_VERB,
   QUANTIFIED,
 } = require('./skillTaxonomy');
+const { detectField, getFieldProfile, isRegulated } = require('./fieldDetection');
 
 /** Clamp helper so scores can never leave 0-100. */
 const clamp = (n, min = 0, max = 100) => Math.min(max, Math.max(min, n));
@@ -66,9 +68,10 @@ const extractProfile = (text) => {
       )
     ),
   ];
-  // LinkedIn / GitHub handles are often written without a protocol.
+  // LinkedIn and GitHub handles are often written without a protocol. Other
+  // professions write bare platform handles too, so capture those as well.
   const handles = header.match(
-    /(?:linkedin\.com\/in|github\.com)\/[A-Za-z0-9_-]+/gi
+    /(?:linkedin\.com\/in|github\.com|behance\.net|dribbble\.com|issuu\.com|researchgate\.net|vimeo\.com|youtube\.com|youtu\.be|medium\.com|substack\.com|orcid\.org)\/[A-Za-z0-9._-]+/gi
   ) || [];
   links.push(...handles);
 
@@ -81,7 +84,7 @@ const extractProfile = (text) => {
         l.length > 2 &&
         l.length < 60 &&
         !/[@\d]/.test(l) &&
-        !/https?:|www\.|linkedin|github/i.test(l) &&
+        !/https?:|www\.|linkedin|github|behance|dribbble|orcid|researchgate/i.test(l) &&
         /^[A-Za-z .'-]+$/.test(l)
     );
 
@@ -221,17 +224,42 @@ const detectSections = (text) => {
 };
 
 /**
+ * A heading is a short line. Prose that merely begins with a heading word —
+ * "Consultant experience across 20 hospitals is my strength" — must not be
+ * treated as a section boundary, or the section above it is truncated at the
+ * first sentence that happens to start with the right word.
+ */
+const isHeadingLine = (text, index) => {
+  const lineStart = text.lastIndexOf('\n', index) + 1;
+  const lineEnd = text.indexOf('\n', index);
+  const line = text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd).trim();
+  return line.length > 0 && line.length <= 100;
+};
+
+/**
  * Locate every known section heading once, so a section's body can be bounded
  * by the *next* heading. Without this, the Experience section swallows
  * Education and Certifications.
  */
 const findSectionHeadings = (text) => {
   const headings = [];
+  const seen = new Set();
   for (const pattern of Object.values(SECTION_PATTERNS)) {
-    // Patterns are /i but not /g, so a fresh exec per call is stateless.
-    const re = new RegExp(pattern.source, 'im');
-    const m = re.exec(text);
-    if (m) headings.push({ index: m.index, length: m[0].length });
+    // Every match counts, not just the first. With only the first match,
+    // "REGISTRATIONS" was registered as the certifications heading, so a
+    // later "CERTIFICATIONS" heading was invisible and the memberships
+    // section swallowed it.
+    const re = new RegExp(pattern.source, 'gim');
+    let m;
+    // Patterns are unbounded on purpose, so cap the scan to keep a pathological
+    // document from turning this into a hot loop.
+    for (let scanned = 0; scanned < 200 && (m = re.exec(text)); scanned += 1) {
+      if (!seen.has(m.index) && isHeadingLine(text, m.index)) {
+        seen.add(m.index);
+        headings.push({ index: m.index, length: m[0].length });
+      }
+      if (m[0].length === 0) re.lastIndex += 1;
+    }
   }
   return headings.sort((a, b) => a.index - b.index);
 };
@@ -240,14 +268,18 @@ const findSectionHeadings = (text) => {
  * Return the text belonging to one section, stopping at the next heading.
  */
 const sectionBody = (text, headingPattern) => {
-  const re = new RegExp(headingPattern.source, 'im');
-  const m = re.exec(text);
+  const re = new RegExp(headingPattern.source, 'gim');
+  const headings = findSectionHeadings(text);
+  let m;
+  // Skip a match that sits in the middle of a prose line, so the first real
+  // heading is the one that bounds the section.
+  while ((m = re.exec(text)) && !isHeadingLine(text, m.index)) {
+    if (m[0].length === 0) re.lastIndex += 1;
+  }
   if (!m) return '';
 
   const start = m.index + m[0].length;
-  const next = findSectionHeadings(text).find(
-    (h) => h.index > m.index && h.index >= start
-  );
+  const next = headings.find((h) => h.index > m.index && h.index >= start);
   return text.slice(start, next ? next.index : undefined);
 };
 
@@ -329,8 +361,12 @@ const extractList = (text, headingPattern, limit = 10) => {
  * job titles in their experience entries. This is stronger evidence than skill
  * keyword coverage: listing Docker and AWS as a backend engineer should not
  * outrank "Backend Engineer" when their actual job title says so.
+ *
+ * @param {Array} experience Parsed experience entries.
+ * @param {string} fullText Full CV text.
+ * @param {string[]} candidateRoles Only roles valid for the detected field.
  */
-const detectHeldRoles = (experience, fullText) => {
+const detectHeldRoles = (experience, fullText, candidateRoles = null) => {
   const titles = [
     ...experience.map((e) => e.title || ''),
     ...experience.map((e) => e.company || ''),
@@ -338,8 +374,10 @@ const detectHeldRoles = (experience, fullText) => {
   const blob = `${titles} ${fullText.toLowerCase().slice(0, 400)}`;
 
   const held = new Set();
-  for (const role of Object.keys(ROLE_PROFILES)) {
-    const head = role.split(' / ')[0].toLowerCase(); // "QA / Test Engineer" -> "qa"
+  const pool = candidateRoles || Object.keys(ROLE_PROFILES);
+  for (const role of pool) {
+    // "QA / Test Engineer" -> "qa"; "UX Researcher" -> "ux researcher".
+    const head = role.split(' / ')[0].toLowerCase();
     const words = head.split(/\s+/).filter((w) => w.length > 2);
     if (!words.length) continue;
     if (words.every((w) => new RegExp(`(?<![a-z])${w}`).test(blob))) {
@@ -352,15 +390,28 @@ const detectHeldRoles = (experience, fullText) => {
 /**
  * Rank job titles by how well the candidate's skills cover each role profile,
  * boosted when the role matches a title they have actually held.
+ *
+ * `field` restricts suggestions to that field's role ladder. This is the
+ * mechanism that stops a teacher being offered "DevOps Engineer": the
+ * recommendation is a function of the detected profession, not a global list.
+ *
+ * @param {Array<{name: string, mentions: number}>} skills
+ * @param {Set<string>} heldRoles
+ * @param {string} field Key from FIELDS (e.g. 'healthcare').
  */
-const suggestRoles = (skills, heldRoles = new Set()) => {
+const suggestRoles = (skills, heldRoles = new Set(), field = null) => {
   const skillNames = new Set(skills.map((s) => s.name.toLowerCase()));
   const weighted = new Map(
     skills.map((s) => [s.name.toLowerCase(), s.mentions])
   );
 
-  return Object.entries(ROLE_PROFILES)
-    .map(([title, required]) => {
+  // Restrict to the candidate's field. `general` keeps the cross-industry set.
+  const allowed = (field && FIELD_ROLE_PROFILES[field]) || FIELD_ROLE_PROFILES.general;
+  const pool = [...new Set(allowed)].filter((title) => ROLE_PROFILES[title]);
+
+  return pool
+    .map((title) => {
+      const required = ROLE_PROFILES[title];
       const hits = required.filter((r) => skillNames.has(r.toLowerCase()));
       // Coverage dominates; mention depth breaks ties.
       const coverage = hits.length / required.length;
@@ -381,14 +432,7 @@ const suggestRoles = (skills, heldRoles = new Set()) => {
     .map((r) => ({
       title: r.title,
       matchPercent: Math.round(r.score),
-      demand:
-        ['AI Engineer', 'Machine Learning Engineer', 'Full Stack Developer', 'DevOps Engineer'].includes(
-          r.title
-        )
-          ? 'High'
-          : r.score > 70
-            ? 'Medium'
-            : 'Steady',
+      demand: roleDemand(r.title, r.score),
       reason: r.held
         ? `You already hold this title, and your CV evidences ${r.hits.slice(0, 3).join(', ')}.`
         : `Your CV already evidences ${r.hits
@@ -399,11 +443,42 @@ const suggestRoles = (skills, heldRoles = new Set()) => {
 };
 
 /**
+ * Labour-market demand per role. The old implementation hardcoded four tech
+ * roles as "High" and defaulted everything else, which told a teacher their
+ * field was flat. Demand is now a property of the role across all sectors.
+ */
+const HIGH_DEMAND_ROLES = new Set([
+  // tech
+  'AI Engineer', 'Machine Learning Engineer', 'Full Stack Developer', 'DevOps Engineer',
+  'Data Engineer', 'Cloud Engineer', 'Cybersecurity Analyst', 'Software Engineer',
+  // clinical and regulated — structurally short of qualified people
+  'Registered Nurse', 'Clinical Nurse Specialist', 'Pharmacist', 'Paramedic',
+  // education — sustained policy-driven demand
+  'Secondary School Teacher', 'Primary School Teacher', 'University Lecturer',
+  // commercial and technical trades
+  'Mechanical Engineer', 'Civil Engineer', 'Quality Engineer', 'Supply Chain Manager',
+  'Chartered Accountant', 'Financial Controller', 'Project Manager',
+  'Employment Consultant', 'HR Business Partner', 'Account Executive',
+  'Customer Service Manager', 'Operations Manager', 'Supply Chain Manager',
+  'UX Researcher', 'Compliance Officer', 'Research Scientist',
+]);
+
+const roleDemand = (title, score) => {
+  if (HIGH_DEMAND_ROLES.has(title)) return 'High';
+  if (score >= 70) return 'Medium';
+  return 'Steady';
+};
+
+/**
  * Keywords worth adding. Scoped to the single best-fit role rather than the
  * union of the top three — unioning pulls in Django, Flask and Java for a
  * React developer, which is noise rather than advice.
+ *
+ * @param {Array<{name: string}>} skills Skills already on the CV.
+ * @param {Array<{title: string}>} roles Ranked role suggestions.
+ * @param {string} field Detected field, so the keyword pool is field-specific.
  */
-const findMissingKeywords = (skills, roles) => {
+const findMissingKeywords = (skills, roles, field = null) => {
   const present = new Set(skills.map((s) => s.name.toLowerCase()));
   const wanted = new Set();
 
@@ -413,8 +488,8 @@ const findMissingKeywords = (skills, roles) => {
       if (!present.has(skill.toLowerCase())) wanted.add(skill);
     }
   }
-  // Transferable skills that recruiters filter on regardless of role.
-  for (const kw of ATS_KEYWORDS) {
+  // Transferable skills plus this field's own screening terms.
+  for (const kw of atsKeywordsFor(field)) {
     if (!present.has(kw.toLowerCase())) wanted.add(kw);
   }
 
@@ -426,21 +501,46 @@ const findMissingKeywords = (skills, roles) => {
  * Weighted so that a well-structured CV with a decent skill breadth and
  * quantified achievements lands in the 70-85 band, which is what recruiters
  * actually see in practice.
+ *
+ * The breadth target is field-dependent. A CV lists ~18 technologies, but a
+ * nurse's evidence is clinical competencies and a teacher's is curriculum and
+ * pedagogy, so a fixed target would unfairly cap every non-tech CV.
+ *
+ * @param {string} text
+ * @param {Array<{name: string}>} skills
+ * @param {object} sections
+ * @param {number} years
+ * @param {Array<{title: string}>} roleTitles
+ * @param {object} [fieldProfile] From getFieldProfile().
  */
-const scoreResume = (text, skills, sections, years, roleTitles) => {
-  const skillScore = clamp((skills.length / 18) * 100, 0, 100);
+const scoreResume = (text, skills, sections, years, roleTitles, fieldProfile = null) => {
+  const breadthTarget = fieldProfile?.competencies?.length
+    ? clamp(fieldProfile.competencies.length * 1.6, 10, 22)
+    : 18;
+  const skillScore = clamp((skills.length / breadthTarget) * 100, 0, 100);
 
   // A CV is usually 1-3 pages; ~2000 characters is a reasonable single page.
+  // "Projects" is strong evidence in creative and technical fields but weak in
+  // clinical or teaching roles, where experience itself is the evidence.
+  const projectCredit = ['software', 'design', 'media', 'general'].includes(fieldProfile?.key)
+    ? 10
+    : 5;
   const expScore = clamp(
-    35 + years * 9 + (sections.experience ? 25 : 0) + (sections.projects ? 10 : 0),
+    35 + years * 9 + (sections.experience ? 25 : 0) + (sections.projects ? projectCredit : 0),
     0,
     100
   );
 
+  // In regulated fields, registration and mandatory credentials are worth more
+  // than a postgraduate degree.
+  const regulatedBonus = fieldProfile?.regulated ? 20 : 0;
   const eduScore = clamp(
     (sections.education ? 55 : 0) +
       (sections.certifications ? 25 : 0) +
-      (/ph\.?d|doctorate|master/i.test(text) ? 20 : 0),
+      (/(?:ph\.?d|doctorate|master|mbbs|md\b|msc|b\.?sc|m\.?sc|mba|cima|acca|cpa|frs|cima|cgma|qts|pgce|msw|bsn|rn\b|jd\b)/i.test(text)
+        ? 20
+        : 0) +
+      (regulatedBonus && sections.certifications ? regulatedBonus : 0),
     0,
     100
   );
@@ -502,7 +602,7 @@ const atsScore = (text, profile, sections) => {
   return Math.round(clamp(score));
 };
 
-const buildStrengths = (skills, sections, years, text) => {
+const buildStrengths = (skills, sections, years, text, fieldProfile) => {
   const out = [];
   const byCat = skills.reduce((acc, s) => {
     acc[s.category] = (acc[s.category] || 0) + 1;
@@ -511,7 +611,12 @@ const buildStrengths = (skills, sections, years, text) => {
   const topCat = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0];
 
   if (topCat && topCat[1] >= 3) {
-    out.push(`Strong ${topCat[0].toLowerCase()} coverage with ${topCat[1]} recognised technologies.`);
+    // "recognised technologies" was a tell that this copy came from a
+    // software-only product. A nurse's cluster is clinical competencies, so
+    // the wording has to work for any category.
+    out.push(
+      `Concentrated ${topCat[0].toLowerCase()} expertise — ${topCat[1]} distinct skills employers in this field screen for.`
+    );
   }
   if (years >= 3) {
     out.push(`${years}+ years of demonstrable industry experience.`);
@@ -523,8 +628,10 @@ const buildStrengths = (skills, sections, years, text) => {
   if (quantified >= 3) {
     out.push(`Quantified impact in ${quantified} places (metrics strongly influence shortlisting).`);
   }
-  if (sections.projects) {
+  if (sections.projects && ['software', 'design', 'media'].includes(fieldProfile?.key)) {
     out.push('Projects section gives evidence of applied, hands-on ability.');
+  } else if (sections.achievements) {
+    out.push('A dedicated achievements section makes your impact easy to verify.');
   }
   const advanced = skills.filter((s) => s.level === 'Expert' || s.level === 'Advanced');
   if (advanced.length >= 3) {
@@ -534,16 +641,20 @@ const buildStrengths = (skills, sections, years, text) => {
   return out.slice(0, 6);
 };
 
-const buildWeaknesses = (skills, sections, text, profile) => {
+const buildWeaknesses = (skills, sections, text, profile, fieldProfile) => {
   const out = [];
   if (skills.length < 6) {
-    out.push('Too few recognisable technical keywords — an ATS may not classify your CV correctly.');
+    out.push(
+      `Too few recognisable skills for a ${fieldProfile?.label?.toLowerCase() || 'professional'} role — an ATS may not classify your CV correctly.`
+    );
   }
   if (!sections.experience) {
     out.push('No clearly labelled Experience section, which significantly hurts ATS parsing.');
   }
   if (!sections.skills) {
-    out.push('No dedicated Skills section. Add one so keyword matching works reliably.');
+    out.push(
+      `No dedicated Skills section. Add one using the terminology ${fieldProfile?.label?.toLowerCase() || 'your industry'} recruiters actually use.`
+    );
   }
   if (!sections.summary) {
     out.push('No professional summary to orient a recruiter in the first 3 seconds.');
@@ -556,15 +667,29 @@ const buildWeaknesses = (skills, sections, text, profile) => {
   }
   const quantified = (text.match(new RegExp(QUANTIFIED, 'gi')) || []).length;
   if (quantified < 2) {
-    out.push('Very few measurable results. Add numbers to your bullet points.');
+    out.push(
+      `Very few measurable results. In ${fieldProfile?.label?.toLowerCase() || 'your field'}, outcomes are what separate candidates — e.g. "${fieldProfile?.metrics?.[0] || 'delivered a key result 20% better than target'}".`
+    );
   }
   if (text.length > 9000) {
     out.push('The CV is very dense; long documents are often skipped and may parse badly.');
   }
   return out.slice(0, 6);
 };
-const buildRecommendations = (missing, weaknesses, skills, sections) => {
+
+/**
+ * Field-aware recommendations.
+ *
+ * Every branch here used to be written for a software engineer: "add a
+ * Projects section with links to GitHub", "strongest stack", "cut API latency".
+ * Those are now drawn from the detected field's profile, so a nurse is told to
+ * surface their registration number and a marketer is told to link a campaign.
+ */
+const buildRecommendations = (missing, weaknesses, skills, sections, fieldProfile, text) => {
   const out = [];
+  const profile = fieldProfile || getFieldProfile('general');
+  const body = String(text || '');
+
   if (missing.length) {
     out.push(
       `Weave these high-value keywords into your CV where truthful: ${missing
@@ -573,18 +698,53 @@ const buildRecommendations = (missing, weaknesses, skills, sections) => {
     );
   }
   if (!sections.summary) {
-    out.push('Add a 3-line professional summary at the top stating your role, years of experience and strongest stack.');
+    out.push(
+      `Add a 3-line professional summary at the top stating your role, years of experience and strongest area of ${profile.label.toLowerCase()}.`
+    );
   }
+
+  // Portfolio advice is field-specific: a GitHub link is only correct for tech.
   if (!sections.projects) {
-    out.push('Add a Projects section with links to GitHub or a live demo — it is the fastest proof of skill for junior candidates.');
+    out.push(
+      `Add a section showing your work: ${profile.portfolio.hint}. Recruiters in ${profile.label.toLowerCase()} treat this as your primary evidence of ability.`
+    );
+  } else {
+    // The projects section exists, so only the "no evidence attached" advice is
+    // left. Whether that applies depends on the CV body, not on the keyword
+    // list, so the check has to run against the real text.
+    const hasEvidence =
+      /https?:\/\/|\bwww\.|linkedin\.com|behance\.net|dribbble\.com|github\.com|issuu\.com|medium\.com|youtu\.be|vimeo\.com|portfolio/i.test(
+        body
+      );
+    if (!hasEvidence) {
+      out.push(
+        `Your work section lists no links. Add ${profile.portfolio.examples[0]} — in this field that is the proof that gets you shortlisted.`
+      );
+    }
   }
+
   const quantified = weaknesses.find((w) => /measurable results/i.test(w));
   if (quantified) {
-    out.push('Rewrite at least three bullets in the form "Action + Result + Metric", e.g. "Cut API latency 40% by adding Redis caching".');
+    out.push(
+      `Rewrite at least three bullets as "Action + Result + Metric", e.g. "${profile.metrics[0] || 'reduced turnaround by 25%'}".`
+    );
   }
+
   if (skills.length > 22) {
-    out.push('You list a lot of technologies. Prioritise the 12-15 most relevant to your target role to avoid diluting your profile.');
+    out.push(
+      `You list a lot of skills. Prioritise the 12-15 most relevant to your target role to avoid diluting your profile.`
+    );
   }
+
+  // Credentials matter more in regulated fields than anywhere else.
+  if (!sections.certifications && profile.credentials.length) {
+    out.push(
+      `Add a qualifications or registration section. Employers here look for: ${profile.credentials
+        .slice(0, 2)
+        .join(', or ')}.`
+    );
+  }
+
   out.push('Save an ATS-friendly PDF (single column, no tables, no text boxes) and keep a .docx for portals that reformat files.');
   return out.slice(0, 6);
 };
@@ -596,7 +756,7 @@ const buildRecommendations = (missing, weaknesses, skills, sections) => {
  * @param {string} text Extracted resume text.
  * @returns {object} An analysis payload matching the Analysis schema.
  */
-const analyzeLocally = (text) => {
+const analyzeLocally = (text, targetJob = null) => {
   const profile = extractProfile(text);
   const skills = extractSkills(text);
   const sections = detectSections(text);
@@ -604,14 +764,37 @@ const analyzeLocally = (text) => {
   const experience = extractExperience(text);
   const education = extractEducation(text);
 
-  const heldRoles = detectHeldRoles(experience, text);
-  const suggestedRoles = suggestRoles(skills, heldRoles);
-  const missingKeywords = findMissingKeywords(skills, suggestedRoles);
+  // 1. Detect the field. A stated target job overrides detection, because the
+  //    candidate has told us the profession outright and inference is weaker
+  //    than an explicit answer.
+  const detection = detectField(text, { skills, experience });
+  const inferredField = detection.field;
+  const targetField = targetJob ? detectField(targetJob.title || '', {}) : null;
+  const field =
+    targetField && targetField.field !== 'general' ? targetField.field : inferredField;
+  const fieldProfile = {
+    key: field,
+    ...getFieldProfile(field),
+    regulated: isRegulated(field),
+  };
+
+  // 2. Only ever suggest roles from the candidate's own field.
+  const allowedRoles = FIELD_ROLE_PROFILES[field] || FIELD_ROLE_PROFILES.general;
+  const heldRoles = detectHeldRoles(experience, text, allowedRoles);
+  const suggestedRoles = suggestRoles(skills, heldRoles, field);
+  const missingKeywords = findMissingKeywords(skills, suggestedRoles, field);
   const matchedKeywords = suggestedRoles[0]?.topSkills || skills.slice(0, 10).map((s) => s.name);
-  const { score, breakdown } = scoreResume(text, skills, sections, yearsOfExperience, suggestedRoles);
+  const { score, breakdown } = scoreResume(
+    text,
+    skills,
+    sections,
+    yearsOfExperience,
+    suggestedRoles,
+    fieldProfile
+  );
   const ats = atsScore(text, profile, sections);
 
-  const weaknesses = buildWeaknesses(skills, sections, text, profile);
+  const weaknesses = buildWeaknesses(skills, sections, text, profile, fieldProfile);
   // A strong CV can legitimately trip none of the structural checks, but the
   // dashboard should always offer something actionable. Keyword gaps are the
   // honest fallback because they are always computed.
@@ -627,6 +810,13 @@ const analyzeLocally = (text) => {
     score,
     scoreBreakdown: breakdown,
     atsScore: ats,
+    // The detected profession, so the UI and the AI prompt can both be
+    // field-aware. `detectedBy` records whether the CV text or the user's
+    // stated target job decided it.
+    field: fieldProfile.key,
+    fieldLabel: fieldProfile.label,
+    fieldConfidence: targetField?.confidence ?? detection.confidence,
+    fieldEvidence: detection.evidence,
     profile: { ...profile, yearsOfExperience },
     skills,
     matchedKeywords,
@@ -634,11 +824,20 @@ const analyzeLocally = (text) => {
     experience,
     education,
     certifications: extractList(text, SECTION_PATTERNS.certifications, 8),
+    registrations: extractList(text, SECTION_PATTERNS.registrations, 8),
+    affiliations: extractList(text, SECTION_PATTERNS.affiliations, 8),
     languages: extractList(text, SECTION_PATTERNS.languages, 6),
     projects: extractProjects(text),
-    strengths: buildStrengths(skills, sections, yearsOfExperience, text),
+    strengths: buildStrengths(skills, sections, yearsOfExperience, text, fieldProfile),
     weaknesses,
-    recommendations: buildRecommendations(missingKeywords, weaknesses, skills, sections),
+    recommendations: buildRecommendations(
+      missingKeywords,
+      weaknesses,
+      skills,
+      sections,
+      fieldProfile,
+      text
+    ),
     suggestedRoles,
     engine: 'local',
   };
@@ -653,6 +852,7 @@ module.exports = {
   suggestRoles,
   findMissingKeywords,
   scoreResume,
+  detectField,
   clamp,
   SCORE_WEIGHTS,
 };

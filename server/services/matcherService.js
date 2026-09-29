@@ -120,21 +120,44 @@ const matchAgainstJob = (resumeText, job, analysis = {}) => {
 
   // 2. Seniority alignment. The title is authoritative; the body is only
   //    consulted as a fallback, because bodies routinely mention other levels
-  //    ("you will mentor junior engineers" in a Senior posting).
+  //    ("you will mentor junior staff" in a Senior posting).
+  //
+  //    These terms are not software-specific, but professions with no
+  //    "Senior" prefix need their own ladder — a chef, a clinician and a
+  //    lawyer progress by grade, band, level and seniority respectively.
   const SENIORITY = [
     { term: 'principal', rank: 6, min: 9, max: 30, label: 'Principal' },
-    { term: 'staff engineer', rank: 5, min: 7, max: 25, label: 'Staff' },
+    { term: 'distinguished', rank: 6, min: 12, max: 30, label: 'Principal' },
+    { term: 'consultant', rank: 5, min: 7, max: 25, label: 'Consultant' },
     { term: 'staff', rank: 5, min: 7, max: 25, label: 'Staff' },
+    { term: 'director', rank: 5, min: 8, max: 30, label: 'Director' },
+    { term: 'head of', rank: 5, min: 8, max: 30, label: 'Head of' },
+    { term: 'partner', rank: 5, min: 8, max: 30, label: 'Partner' },
+    { term: 'professor', rank: 5, min: 8, max: 30, label: 'Professor' },
+    { term: 'attending', rank: 5, min: 7, max: 25, label: 'Attending' },
+    { term: 'chief', rank: 5, min: 10, max: 30, label: 'Director' },
     { term: 'lead', rank: 4, min: 6, max: 25, label: 'Lead' },
+    { term: 'manager', rank: 4, min: 5, max: 25, label: 'Manager' },
     { term: 'senior', rank: 3, min: 5, max: 20, label: 'Senior' },
     { term: 'sr.', rank: 3, min: 5, max: 20, label: 'Senior' },
+    { term: 'experienced', rank: 3, min: 4, max: 20, label: 'Senior' },
+    { term: 'chartered', rank: 3, min: 4, max: 20, label: 'Chartered' },
+    { term: 'registered', rank: 3, min: 3, max: 20, label: 'Senior' },
+    { term: 'specialist', rank: 3, min: 4, max: 20, label: 'Specialist' },
+    { term: 'graduate', rank: 2, min: 0, max: 2, label: 'Junior' },
     { term: 'mid level', rank: 2, min: 2, max: 5, label: 'Mid' },
     { term: 'mid-level', rank: 2, min: 2, max: 5, label: 'Mid' },
     { term: 'intermediate', rank: 2, min: 2, max: 5, label: 'Mid' },
+    { term: 'band 6', rank: 2, min: 2, max: 6, label: 'Mid' },
+    { term: 'band 7', rank: 3, min: 4, max: 12, label: 'Senior' },
     { term: 'associate', rank: 1, min: 0, max: 2, label: 'Junior' },
     { term: 'junior', rank: 1, min: 0, max: 1, label: 'Junior' },
     { term: 'entry level', rank: 1, min: 0, max: 1, label: 'Junior' },
+    { term: 'trainee', rank: 1, min: 0, max: 2, label: 'Junior' },
+    { term: 'apprentice', rank: 1, min: 0, max: 2, label: 'Junior' },
+    { term: 'commis', rank: 0, min: 0, max: 1, label: 'Junior' },
     { term: 'intern', rank: 0, min: 0, max: 0, label: 'Intern' },
+    { term: 'placement', rank: 0, min: 0, max: 0, label: 'Intern' },
   ];
 
   const titleText = ` ${String(job.title || '').toLowerCase()} `;
@@ -156,12 +179,39 @@ const matchAgainstJob = (resumeText, job, analysis = {}) => {
           ? clamp(1 - (target.min - years) / 6, 0.1, 1)
           : clamp(1 - (years - target.max) / 10, 0.3, 1);
 
-  // 3. Soft-signal keywords (domain terms, methodologies) in both documents.
+  // 3. Soft-signal keywords — domain terms, methodologies, standards, systems.
+  //    The old list was almost entirely software ("microservices", "rest api",
+  //    "ci/cd"), which meant a nurse's CV could only ever match on "leadership"
+  //    and "communication". This spans every field: clinical, commercial,
+  //    regulatory, creative and operational vocabulary.
   const SOFT_TERMS = [
-    'agile', 'scrum', 'kanban', 'microservices', 'rest api', 'graphql', 'testing',
-    'ci/cd', 'code review', 'mentoring', 'leadership', 'communication',
-    'scalability', 'performance', 'security', 'accessibility', 'seo',
-    'analytics', 'dashboard', 'mobile', 'responsive', 'cloud', 'devops',
+    // transferable
+    'leadership', 'communication', 'mentoring', 'coaching', 'collaboration',
+    'teamwork', 'problem solving', 'project management', 'stakeholder',
+    'presentation', 'reporting', 'time management', 'adaptability',
+    'attention to detail', 'customer service', 'negotiation', 'training',
+    // engineering & tech (kept for real tech roles)
+    'agile', 'scrum', 'kanban', 'testing', 'code review', 'ci/cd', 'api',
+    'microservices', 'cloud', 'devops', 'scalability', 'accessibility',
+    'automation', 'infrastructure', 'security', 'architecture',
+    // clinical
+    'patient safety', 'clinical', 'care planning', 'triage', 'infection control',
+    'evidence-based', 'multidisciplinary', 'safeguarding', 'ward', 'discharge',
+    // commercial
+    'seo', 'analytics', 'campaign', 'conversion', 'pipeline', 'quota',
+    'revenue', 'forecasting', 'budget', 'roi', 'brand', 'content',
+    // financial & regulatory
+    'audit', 'compliance', 'regulatory', 'risk', 'financial reporting',
+    'governance', 'controls', 'licence', 'accreditation',
+    // education
+    'curriculum', 'lesson', 'assessment', 'differentiation', 'safeguarding',
+    'classroom', 'student', 'attainment', 'pedagogy',
+    // operations & industrial
+    'supply chain', 'procurement', 'logistics', 'lean', 'quality assurance',
+    'continuous improvement', 'health and safety', 'iso', 'root cause',
+    // creative & service
+    'portfolio', 'brand guidelines', 'content strategy', 'sla', 'escalation',
+    'customer satisfaction', 'food safety', 'haccp',
   ];
   const sharedTerms = SOFT_TERMS.filter((t) => jd.includes(t) && cv.includes(t));
   const jdTerms = SOFT_TERMS.filter((t) => jd.includes(t));

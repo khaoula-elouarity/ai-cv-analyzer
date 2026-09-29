@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "seed": "node scripts/seedJobs.js",
-    "verify": "node scripts/verifyEngine.js && node scripts/verifyExtraction.js && node scripts/verifyPdfPipeline.js && node scripts/verifyAiService.js"
+    "verify": "node scripts/verifyEngine.js && node scripts/verifyExtraction.js && node scripts/verifyPdfPipeline.js && node scripts/verifyAiService.js",
+    "verify:fields": "node scripts/checkFields.js"
   },
   "keywords": [
     "mern",

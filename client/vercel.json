@@ -4,6 +4,8 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
+    { "source": "/api/:path*", "destination": "https://cv-analyzer-api.onrender.com/api/:path*" },
+    { "source": "/uploads/:path*", "destination": "https://cv-analyzer-api.onrender.com/uploads/:path*" },
     { "source": "/:path((?!api/|uploads/).*)", "destination": "/index.html" }
   ],
   "headers": [
